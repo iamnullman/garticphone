@@ -20,14 +20,19 @@ public class Events implements Listener {
     @EventHandler
     public void asyncChatSend(AsyncPlayerChatEvent event) {
         UUID connectedArena = GameObject.playerLinksArena.get(event.getPlayer().getUniqueId());
+        System.out.println("Player " + event.getPlayer().getName() + " sent a message in arena " + connectedArena);
         if(connectedArena == null) return;
+        System.out.println("Current round: " + Garticphone.getInstance().getGameObject().getCurrentRound());
         if(!Garticphone.getInstance().getGameObject().getCurrentRound().equals(GameRound.SENTENCE)) return;
+        System.out.println("Player " + event.getPlayer().getName() + " is in the SENTENCE round");
+        event.setCancelled(true);
         Garticphone.getInstance().getServer().getScheduler().runTask(Garticphone.getInstance(), () -> {
         ArenaObject arenaObj = ArenaObject.get(connectedArena);
+        System.out.println("Found arena object: " + (arenaObj != null));
         if(arenaObj == null) return;
+        System.out.println("Player " + event.getPlayer().getName() + " is trying to send sentence in arena " + arenaObj.getId());
         boolean success = arenaObj.sendSentence(event.getPlayer(), event.getMessage());
-        if(success) event.getPlayer().sendMessage("§aᴄüᴍʟᴇɴɪᴢɪ ᴋᴀʏᴅᴇᴛᴛɪᴍ.");
-        if(success) event.setCancelled(true);
+        if(success) event.getPlayer().getServer().broadcastMessage(event.getPlayer().getDisplayName() + " cümlesini gönderdi.");
         });
     }
 

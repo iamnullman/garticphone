@@ -43,9 +43,12 @@ public class RegionSnapshot {
     public void restore() {
         for (BlockData data : blocks) {
             Block block = world.getBlockAt(data.x, data.y, data.z);
-            block.setType(Bukkit.createBlockData(data.blockData).getMaterial(), false);
-            block.setBlockData(Bukkit.createBlockData(data.blockData), false);
+            if(block.getType() != Bukkit.createBlockData(data.blockData).getMaterial()) {
+                block.setType(Bukkit.createBlockData(data.blockData).getMaterial(), false);
+                block.setBlockData(Bukkit.createBlockData(data.blockData), false);
+            }
         }
+        System.out.println("Region restored.");
     }
 
     private static class BlockData {

@@ -3,6 +3,8 @@ package dev.nullman.garticphone.objects;
 import dev.nullman.garticphone.types.GameRound;
 import lombok.Getter;
 import lombok.Setter;
+import net.md_5.bungee.api.ChatMessageType;
+import net.md_5.bungee.api.chat.BaseComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -13,7 +15,7 @@ import java.util.*;
 public class GameObject {
 
     private GameRound currentRound = GameRound.WAITING_PLAYERS;
-    private int currentTurn = 0;
+    public static int currentTurn = 1;
     public static HashMap<UUID, UUID> playerLinksArena = new HashMap<>();
     private List<UUID> players = new ArrayList<>();
     private List<UUID> readyPlayers = new ArrayList<>();
@@ -26,166 +28,120 @@ public class GameObject {
     public boolean startGame() {
         if(currentRound != GameRound.WAITING_PLAYERS) return false;
         if(players.size() < 3) return false;
+        prepareArenaOrders();
         currentRound = GameRound.SENTENCE;
         currentTurn = 1;
         return true;
     }
 
-    private boolean nextRound() {
-        if(currentRound == GameRound.WAITING_PLAYERS) return false;
-        if(currentRound == GameRound.ENDING) return false;
+    private void prepareArenaOrders() {
+        List<UUID> playerList = new ArrayList<>(players);
+        List<UUID> arenaList = new ArrayList<>(ArenaObject.getArenaPlayers().keySet());
+
+        int playerCount = playerList.size();
+        int arenaCount = arenaList.size();
+
+        if (playerCount != arenaCount) {
+            throw new IllegalStateException("Oyuncu sayısı ile arena sayısı eşit olmalı!");
+        }
+
+        arenaList.sort(Comparator.comparing(UUID::toString));
+
+        for (UUID playerId : playerList) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player == null) continue;
+
+            ArenaObject ownArena = ArenaObject.get(playerId);
+            if (ownArena == null) continue;
+
+            int startIndex = arenaList.indexOf(ownArena.getId());
+            if (startIndex == -1) continue;
+
+            List<UUID> rotated = new ArrayList<>();
+            rotated.addAll(arenaList.subList(startIndex, arenaCount));
+            rotated.addAll(arenaList.subList(0, startIndex));
+
+            for (int turn = 0; turn < arenaCount; turn++) {
+                UUID arenaId = rotated.get(turn);
+                ArenaObject arena = ArenaObject.get(arenaId);
+                if (arena != null) {
+                    arena.addTurnOrder(turn + 1, playerId);
+                    Player owner = Bukkit.getPlayer(arena.getOwner());
+                    String ownerName = owner != null ? owner.getDisplayName() : arena.getOwner().toString();
+                    System.out.println(player.getDisplayName() + " adlı oyuncu " + (turn + 1) + ". turda " + ownerName + " arenasında.");
+                }
+            }
+        }
+    }
+
+
+
+    private void nextRound() {
+        if(currentRound == GameRound.WAITING_PLAYERS) return;
+        if(currentRound == GameRound.ENDING) return;
         if(currentTurn < players.size()) {
             currentTurn++;
+            teleportAllPlayersToArenas();
             if(currentRound == GameRound.SENTENCE) {
                 currentRound = GameRound.BUILDING;
-                redistributePlayersRandomly();
+                broadcastMessage("§eŞimdi yapı yapma zamanı! Cümleleri yapılara dönüştürün.");
                 resetArenasForBuilding();
             } else if(currentRound == GameRound.BUILDING) {
                 currentRound = GameRound.SENTENCE;
-                redistributePlayersRandomly();
+                broadcastMessage("§eŞimdi cümle zamanı! Yapıları cümlelere dönüştürün.");
             }
         } else {
-            // TODO: end game and show results
+            broadcastMessage("§aTüm turlar tamamlandı! Oyun sona erdi.");
             currentRound = GameRound.ENDING;
         }
-        return true;
     }
 
-    /**
-     * Oyuncuları rastgele arenalara dağıtır
-     */
-    private void redistributePlayersRandomly() {
-        if(players == null || players.isEmpty()) return;
-
-        List<UUID> arenaIds = new ArrayList<>(playerLinksArena.values());
-        arenaIds = new ArrayList<>(new HashSet<>(arenaIds));
-
-        if(arenaIds.isEmpty()) return;
-
-        Collections.shuffle(players);
-        Collections.shuffle(arenaIds);
-
-        // Her oyuncu için uygun arena bul
+    private void broadcastMessage(String message) {
         for(UUID playerId : players) {
-            UUID assignedArena = null;
-
-            // Önce oyuncunun daha önce işlem yapmadığı arenaları bul
-            List<UUID> availableArenas = new ArrayList<>();
-            for(UUID arenaId : arenaIds) {
-                if(!hasPlayerWorkedInArena(playerId, arenaId)) {
-                    availableArenas.add(arenaId);
-                }
-            }
-
-            // Eğer hiç uygun arena yoksa, en az işlem yapılan arenayı seç
-            if(availableArenas.isEmpty()) {
-                assignedArena = findLeastWorkedArena(playerId, arenaIds);
-            } else {
-                // Rastgele uygun arenayı seç
-                Collections.shuffle(availableArenas);
-                assignedArena = availableArenas.get(0);
-            }
-
-            if(assignedArena != null) {
-                playerLinksArena.put(playerId, assignedArena);
-                teleportPlayerToArena(playerId, assignedArena);
+            Player player = Bukkit.getPlayer(playerId);
+            if(player != null && player.isOnline()) {
+                player.sendMessage(message);
             }
         }
     }
 
-    /**
-     * Oyuncunun belirtilen arenada daha önce işlem yapıp yapmadığını kontrol eder
-     */
-    private boolean hasPlayerWorkedInArena(UUID playerId, UUID arenaId) {
-        ArenaObject arena = ArenaObject.get(arenaId);
-        if(arena == null) return false;
-
-        // Sentence yazmış mı kontrol et
-        if(arena.getPlayerSentences().containsKey(playerId)) {
-            return true;
-        }
-
-        // Drawing yapmış mı kontrol et
-        if(arena.getPlayerDrawings().containsKey(playerId)) {
-            return true;
-        }
-
-        return false;
-    }
-
-    /**
-     * Oyuncunun en az işlem yaptığı arenayı bulur (son çare)
-     */
-    private UUID findLeastWorkedArena(UUID playerId, List<UUID> arenaIds) {
-        UUID bestArena = null;
-        int minWorkCount = Integer.MAX_VALUE;
-
-        for(UUID arenaId : arenaIds) {
-            ArenaObject arena = ArenaObject.get(arenaId);
-            if(arena == null) continue;
-
-            int workCount = 0;
-            if(arena.getPlayerSentences().containsKey(playerId)) workCount++;
-            if(arena.getPlayerDrawings().containsKey(playerId)) workCount++;
-
-            if(workCount < minWorkCount) {
-                minWorkCount = workCount;
-                bestArena = arenaId;
+    private void broadcastTitle(String title, String subtitle) {
+        for(UUID playerId : players) {
+            Player player = Bukkit.getPlayer(playerId);
+            if(player != null && player.isOnline()) {
+                player.sendTitle(title, subtitle, 10, 70, 20);
             }
         }
-
-        return bestArena;
     }
 
-    /**
-     * Build aşaması için arenaları sıfırlar ve önceki sentence'ları title olarak gönderir
-     */
     private void resetArenasForBuilding() {
-        for(UUID arenaId : new HashSet<>(playerLinksArena.values())) {
-            ArenaObject arena = ArenaObject.get(arenaId);
-            if(arena != null) {
-                // Önceki tur sentence'ını al
-                String previousSentence = getPreviousPlayerSentence(arenaId);
-
-                // Arenayı sıfırla ama kaydedilenleri koru
-                arena.resetArenaKeepData();
-
-                // Bu arenada olan oyuncuya title gönder
-                UUID currentPlayerInArena = getCurrentPlayerInArena(arenaId);
-                if(currentPlayerInArena != null && previousSentence != null) {
-                    sendTitleToPlayer(currentPlayerInArena, previousSentence);
+        for(UUID playerId : players) {
+            UUID arenaId = playerLinksArena.get(playerId);
+            if(arenaId != null) {
+                ArenaObject arena = ArenaObject.get(arenaId);
+                if(arena != null) {
+                    String sentence = arena.getPlayerSentence(arena.getPlayerAtTurn(currentTurn - 1));
+                    sendTitleToPlayer(playerId, sentence);
+                    Player player = Bukkit.getPlayer(playerId);
+                    arena.resetArena();
+                    arena.teleportPlayerToCenter(player);
+                    player.sendMessage("§eCümleniz: §a" + sentence);
                 }
             }
         }
     }
 
-    /**
-     * Belirli arenada şu anda bulunan oyuncuyu bulur
-     */
-    private UUID getCurrentPlayerInArena(UUID arenaId) {
-        for(Map.Entry<UUID, UUID> entry : playerLinksArena.entrySet()) {
-            if(entry.getValue().equals(arenaId)) {
-                return entry.getKey();
+    private void teleportAllPlayersToArenas() {
+        List<ArenaObject> arenas = new ArrayList<>(ArenaObject.getArenas());
+        for (ArenaObject arena: arenas) {
+            UUID playerId = arena.getPlayerAtTurn(currentTurn);
+            if (playerId != null) {
+                playerLinksArena.put(playerId, arena.getId());
+                teleportPlayerToArena(playerId, arena.getId());
             }
         }
-        return null;
     }
 
-    /**
-     * Önceki oyuncunun sentence'ını getirir
-     */
-    private String getPreviousPlayerSentence(UUID arenaId) {
-        ArenaObject arena = ArenaObject.get(arenaId);
-        if(arena != null && !arena.getPlayerSentences().isEmpty()) {
-            // Son eklenen sentence'ı al
-            return arena.getPlayerSentences().values().iterator().next();
-        }
-        return null;
-    }
-
-    /**
-     * Oyuncuya title gönderir
-     */
     private void sendTitleToPlayer(UUID playerId, String sentence) {
         Player player = Bukkit.getPlayer(playerId);
         if(player != null && player.isOnline()) {
@@ -193,9 +149,6 @@ public class GameObject {
         }
     }
 
-    /**
-     * Oyuncuyu belirtilen arenaya ışınlar
-     */
     private void teleportPlayerToArena(UUID playerId, UUID arenaId) {
         Player player = Bukkit.getPlayer(playerId);
         if(player != null && player.isOnline()) {
@@ -213,6 +166,7 @@ public class GameObject {
         if(readyPlayers.contains(playerId)) return;
         readyPlayers.add(playerId);
         if(readyPlayers.size() == players.size()) {
+            System.out.println("All players are ready. Moving to next round.");
             nextRound();
             readyPlayers.clear();
         }
