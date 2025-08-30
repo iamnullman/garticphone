@@ -2,6 +2,6 @@ name: garticphone
 version: '0.1'
 main: dev.nullman.garticphone.Garticphone
 api-version: '1.21'
-load: STARTUP
+load: POSTWORLD
 authors: [ iamnullman ]
 website: https://nullman.dev

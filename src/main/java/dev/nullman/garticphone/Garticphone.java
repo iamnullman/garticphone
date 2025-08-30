@@ -1,6 +1,7 @@
 package dev.nullman.garticphone;
 
 import dev.nullman.garticphone.commands.Commands;
+import dev.nullman.garticphone.events.Events;
 import dev.nullman.garticphone.objects.GameObject;
 import dev.nullman.garticphone.utils.WorldUtil;
 import lombok.Getter;
@@ -30,6 +31,8 @@ public final class Garticphone extends JavaPlugin {
         lamp = BukkitLamp.builder(this).build();
 
         lamp.register(new Commands(), this);
+
+        getServer().getPluginManager().registerEvents(new Events(), this);
 
         this.getLogger().info("Garticphone plugin enabled!");
     }

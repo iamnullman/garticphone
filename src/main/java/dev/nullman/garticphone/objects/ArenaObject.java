@@ -2,7 +2,6 @@ package dev.nullman.garticphone.objects;
 
 import dev.nullman.garticphone.Garticphone;
 import dev.nullman.garticphone.utils.ArenaUtils;
-import dev.nullman.garticphone.utils.WorldUtil;
 import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.Location;
@@ -36,7 +35,7 @@ public class ArenaObject {
         this.owner = id;
         this.players.add(id);
         Location centerLocation = Garticphone.getInstance().getWorldUtil().getNextEmptyChunk();
-        this.loc1 = centerLocation.clone().add(-32, 0, -32);
+        this.loc1 = centerLocation.clone().add(-32, 60, -32);
         this.loc2 = centerLocation.clone().add(32, 120, 32);
         ArenaUtils.createArenaFrame(loc1, loc2, Material.BEDROCK, Material.WHITE_CONCRETE);
         Location center = loc1.clone().add(loc2).multiply(0.5);
@@ -60,15 +59,53 @@ public class ArenaObject {
 
     public boolean sendDrawing(Player player) {
         UUID playerId = player.getUniqueId();
+        System.out.println("Player " + player.getName() + " is trying to send drawing in arena " + this.id);
         if(GameObject.playerLinksArena.get(playerId) == null) return false;
+        System.out.println("Player " + player.getName() + " is linked to arena " + GameObject.playerLinksArena.get(playerId));
         if(!GameObject.playerLinksArena.get(playerId).equals(this.id)) return false;
-        if(!turnOrder.containsValue(playerId)) return false;
+        System.out.println("Player " + player.getName() + " is in the correct arena " + this.id);
+        if(turnOrder.containsValue(playerId)) return false;
+        System.out.println("Player " + player.getName() + " is in the turn order of arena " + this.id);
         if(playerDrawings.containsKey(playerId)) return false;
+        System.out.println("Player " + player.getName() + " has not sent a drawing yet in arena " + this.id);
         RegionSnapshot drawing = new RegionSnapshot(Garticphone.getInstance().getWorldUtil().getWorld(), loc1, loc2);
         playerDrawings.put(playerId, drawing);
         turnOrder.put(turnOrder.size() + 1, playerId);
         Garticphone.getInstance().getGameObject().readyPlayer(player);
         return true;
+    }
+
+    /**
+     * Arenayı sıfırlar ama kaydedilen verileri korur
+     */
+    public void resetArenaKeepData() {
+        // Arena çerçevesini yeniden oluştur (temiz bir arena)
+        ArenaUtils.createArenaFrame(loc1, loc2, Material.BEDROCK, Material.WHITE_CONCRETE);
+
+        // İç kısmı temizle (sadece çerçeveyi koruyarak)
+        Location start = loc1.clone().add(1, 1, 1);
+        Location end = loc2.clone().add(-1, -1, -1);
+
+        // İç alanı hava blokları ile doldur
+        for(int x = start.getBlockX(); x <= end.getBlockX(); x++) {
+            for(int y = start.getBlockY(); y <= end.getBlockY(); y++) {
+                for(int z = start.getBlockZ(); z <= end.getBlockZ(); z++) {
+                    start.getWorld().getBlockAt(x, y, z).setType(Material.AIR);
+                }
+            }
+        }
+    }
+
+    /**
+     * Oyuncuyu arena merkezine ışınlar
+     */
+    public void teleportPlayerToCenter(Player player) {
+        if(player == null || !player.isOnline()) return;
+
+        Location center = loc1.clone().add(loc2).multiply(0.5);
+        center.setY(60); // Güvenli bir yükseklik
+
+        player.teleport(center);
     }
 
 }

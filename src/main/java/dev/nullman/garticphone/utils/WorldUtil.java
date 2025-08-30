@@ -21,7 +21,6 @@ public class WorldUtil {
         if (this.world == null) {
             WorldCreator creator = new WorldCreator(worldName);
             creator.generator(new EmptyChunkGenerator());
-            creator.type(WorldType.FLAT);
 
             World newWorld = creator.createWorld();
 

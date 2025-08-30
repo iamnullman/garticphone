@@ -14,7 +14,7 @@ import java.util.UUID;
 public class Events implements Listener {
 
     public Events() {
-
+        Garticphone.getInstance().getLogger().info("Events loaded.");
     }
 
     @EventHandler
@@ -22,11 +22,13 @@ public class Events implements Listener {
         UUID connectedArena = GameObject.playerLinksArena.get(event.getPlayer().getUniqueId());
         if(connectedArena == null) return;
         if(!Garticphone.getInstance().getGameObject().getCurrentRound().equals(GameRound.SENTENCE)) return;
+        Garticphone.getInstance().getServer().getScheduler().runTask(Garticphone.getInstance(), () -> {
         ArenaObject arenaObj = ArenaObject.get(connectedArena);
         if(arenaObj == null) return;
         boolean success = arenaObj.sendSentence(event.getPlayer(), event.getMessage());
         if(success) event.getPlayer().sendMessage("§aᴄüᴍʟᴇɴɪᴢɪ ᴋᴀʏᴅᴇᴛᴛɪᴍ.");
         if(success) event.setCancelled(true);
+        });
     }
 
 }
