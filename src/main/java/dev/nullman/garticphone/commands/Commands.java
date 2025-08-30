@@ -57,4 +57,23 @@ public class Commands {
             player.sendMessage(ChatColor.RED + "ʏᴀᴘıɴıᴢ ᴋᴀʏᴅᴇᴅɪʟᴍᴇʟɪ.");
         }
     }
+
+    @Subcommand("goster")
+    @CommandPermission("garticphone.show")
+    public void showResults(BukkitCommandActor actor) {
+        Player player = actor.requirePlayer();
+        GameRound currentRound = Garticphone.getInstance().getGameObject().getCurrentRound();
+
+        if(currentRound != GameRound.ENDING) {
+            player.sendMessage(ChatColor.RED + "Oyun henüz bitmedi! Sonuçlar sadece oyun bitiminde gösterilebilir.");
+            return;
+        }
+
+        boolean started = Garticphone.getInstance().getGameObject().startShowResults();
+        if(started) {
+            player.sendMessage(ChatColor.GREEN + "Sonuç gösterimi başlatıldı!");
+        } else {
+            player.sendMessage(ChatColor.RED + "Sonuç gösterimi zaten devam ediyor!");
+        }
+    }
 }

@@ -4,9 +4,10 @@ import dev.nullman.garticphone.types.GameRound;
 import lombok.Getter;
 import lombok.Setter;
 import net.md_5.bungee.api.ChatMessageType;
-import net.md_5.bungee.api.chat.BaseComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitRunnable;
+import dev.nullman.garticphone.Garticphone;
 
 import java.util.*;
 
@@ -20,6 +21,13 @@ public class GameObject {
     private List<UUID> players = new ArrayList<>();
     private List<UUID> readyPlayers = new ArrayList<>();
     private List<UUID> spectators = new ArrayList<>();
+
+    private boolean isShowingResults = false;
+    private int currentShowArenaIndex = 0;
+    private int currentShowTurn = 1;
+    private int currentShowStep = 0; // 0: cümle, 1: yapı
+    private List<UUID> arenaShowOrder = new ArrayList<>();
+    private BukkitRunnable showTask;
 
     public GameObject() {
 
@@ -92,6 +100,7 @@ public class GameObject {
             }
         } else {
             broadcastMessage("§aTüm turlar tamamlandı! Oyun sona erdi.");
+            broadcastMessage("§eOyun sonuçlarını görmek için: §6/garticphone goster");
             currentRound = GameRound.ENDING;
         }
     }
@@ -189,5 +198,216 @@ public class GameObject {
         players.remove(playerId);
         playerLinksArena.remove(playerId);
         return true;
+    }
+
+    public boolean startShowResults() {
+        if (isShowingResults) {
+            return false;
+        }
+
+        if (currentRound != GameRound.ENDING) {
+            return false;
+        }
+
+        isShowingResults = true;
+        currentShowArenaIndex = 0;
+        currentShowTurn = 1;
+        currentShowStep = 0;
+
+        // Arena sırasını belirle
+        arenaShowOrder.clear();
+        arenaShowOrder.addAll(ArenaObject.getArenaPlayers().keySet());
+        arenaShowOrder.sort(Comparator.comparing(UUID::toString)); // Sabit sıralama için
+
+        broadcastMessage("§6§l=== OYUN SONUÇLARI GÖSTERİMİ BAŞLIYOR ===");
+        broadcastMessage("§eHer arenada: Cümle → Yapı → Yanıt → Yapı → ... şeklinde devam edilecek");
+
+        // İlk gösterimi başlat
+        showNextStep();
+        return true;
+    }
+
+    private void showNextStep() {
+        if (currentShowArenaIndex >= arenaShowOrder.size()) {
+            // Tüm arenalar bitti
+            endShowResults();
+            return;
+        }
+
+        UUID currentArenaId = arenaShowOrder.get(currentShowArenaIndex);
+        ArenaObject arena = ArenaObject.get(currentArenaId);
+
+        if (arena == null) {
+            nextArena();
+            return;
+        }
+
+        // Bu arenada gösterilecek bir şey kaldı mı kontrol et
+        if (currentShowTurn > players.size()) {
+            nextArena();
+            return;
+        }
+
+        // Arena sahibini bul
+        Player arenaOwner = Bukkit.getPlayer(arena.getOwner());
+        String ownerName = arenaOwner != null ? arenaOwner.getDisplayName() : "Bilinmeyen Oyuncu";
+
+        if (currentShowStep == 0) {
+            // Cümle göster
+            showSentenceStep(arena, ownerName);
+        } else {
+            // Yapı göster
+            showBuildingStep(arena, ownerName);
+        }
+    }
+
+    private void showSentenceStep(ArenaObject arena, String ownerName) {
+        // Tüm oyuncuları bu arenaya ışınla
+        teleportAllPlayersToArena(arena);
+
+        // Arena'yı temizle
+        arena.resetArena();
+
+        // Bu turda kim cümle yazdı?
+        UUID writerId = arena.getPlayerAtTurn(currentShowTurn);
+        if (writerId == null) {
+            nextStep();
+            return;
+        }
+
+        String sentence = arena.getPlayerSentence(writerId);
+        if (sentence == null) {
+            nextStep();
+            return;
+        }
+
+        Player writer = Bukkit.getPlayer(writerId);
+        String writerName = writer != null ? writer.getDisplayName() : "Bilinmeyen";
+
+        // Mesajları gönder
+        broadcastMessage("§6§l=== " + ownerName + " ARENASI ===");
+        broadcastMessage("§eTur " + currentShowTurn + " - " + writerName + " tarafından yazılan cümle:");
+        broadcastMessage("§f\"" + sentence + "\"");
+
+        // Title gönder
+        broadcastTitle("§6" + ownerName + " Arenası", "§e" + writerName + " - Cümle");
+
+        // Action bar
+        sendActionBarToAll("§6Cümle: §e" + sentence);
+
+        // 4 saniye sonra yapıyı göster
+        scheduleNext(4);
+    }
+
+    private void showBuildingStep(ArenaObject arena, String ownerName) {
+        // Bu turda kim yapı yaptı?
+        UUID builderId = arena.getPlayerAtTurn(currentShowTurn);
+        if (builderId == null) {
+            nextStep();
+            return;
+        }
+
+        RegionSnapshot building = arena.getPlayerDrawing(builderId);
+        if (building == null) {
+            nextStep();
+            return;
+        }
+
+        Player builder = Bukkit.getPlayer(builderId);
+        String builderName = builder != null ? builder.getDisplayName() : "Bilinmeyen";
+
+        // Arena'yı temizle ve yapıyı restore et
+        arena.resetArena();
+        building.restore();
+
+        // Mesajları gönder
+        broadcastMessage("§aTur " + currentShowTurn + " - " + builderName + " tarafından yapılan yapı:");
+
+        // Title gönder
+        broadcastTitle("§6" + ownerName + " Arenası", "§a" + builderName + " - Yapı");
+
+        // Action bar
+        sendActionBarToAll("§aYapı: §e" + builderName + " §atarafından yapıldı");
+
+        // 5 saniye sonra bir sonraki adıma geç
+        scheduleNext(5);
+    }
+
+    private void teleportAllPlayersToArena(ArenaObject arena) {
+        for (UUID playerId : players) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null && player.isOnline()) {
+                arena.teleportPlayerToCenter(player);
+            }
+        }
+    }
+
+    private void scheduleNext(int seconds) {
+        if (showTask != null) {
+            showTask.cancel();
+        }
+
+        showTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                nextStep();
+            }
+        };
+        showTask.runTaskLater(Garticphone.getInstance(), seconds * 20L);
+    }
+
+    private void nextStep() {
+        if (currentShowStep == 0) {
+            // Cümleden yapıya geç
+            currentShowStep = 1;
+        } else {
+            // Yapıdan bir sonraki tura geç
+            currentShowStep = 0;
+            currentShowTurn++;
+        }
+
+        showNextStep();
+    }
+
+    private void nextArena() {
+        currentShowArenaIndex++;
+        currentShowTurn = 1;
+        currentShowStep = 0;
+        showNextStep();
+    }
+
+    private void endShowResults() {
+        isShowingResults = false;
+
+        if (showTask != null) {
+            showTask.cancel();
+            showTask = null;
+        }
+
+        broadcastMessage("§6§l=== TÜM ARENALAR GÖSTERİLDİ ===");
+        broadcastMessage("§aTebrikler! Tüm oyun sonuçları gösterildi.");
+        broadcastTitle("§6Gösterim Tamamlandı!", "§aTebrikler!");
+
+        // Oyuncuları spawn'a ışınla
+        teleportPlayersToSpawn();
+    }
+
+    private void teleportPlayersToSpawn() {
+        for (UUID playerId : players) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null && player.isOnline()) {
+                player.teleport(player.getWorld().getSpawnLocation());
+            }
+        }
+    }
+
+    private void sendActionBarToAll(String message) {
+        for (UUID playerId : players) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null && player.isOnline()) {
+                player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
+                    new net.md_5.bungee.api.chat.TextComponent(message));
+            }
+        }
     }
 }
